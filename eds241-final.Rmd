@@ -1,0 +1,187 @@
+---
+title: 'EDS 241: Final Exam'
+author: "Paloma Cartwright"
+date: "`r Sys.Date()`"
+output: 
+    pdf_document:
+    toc: false
+    number_sections: no
+    always_allow_html: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+librarian::shelf("AER", "stargazer", "here", "tidyr", "tidyverse", "dplyr","stringr", "DT", "plm", "janitor", "huxtable", "cowplot", "ggplot2", "tinytex", "datasets", "tibble", "readxl", "estimatr", "patchwork", "car", "kableExtra")
+
+options(scipen = 999)
+
+```
+
+\noindent The question for this take-home final exam asks you to examine
+the impact of the opening of a garbage incinerator on housing values in
+North Andover, MA. The data for the exercise are a subset of the data in
+the paper: K.A. Kiel and K.T. McClain (1995): "House Prices During
+Siting Decision Stages: The Case of an Incinerator from Rumor Through
+Operation," Journal of Environmental Economics and Management 28,
+241-255.
+
+**Background:** The construction of a new garbage incinerator in North
+Andover in the early 1980s was controversial due to the increases in
+ambient pollution that it would create. Rumors of the incinerator began
+after 1978. The construction started in 1981, and the incinerator began
+operating in 1985. In Economics, land market theory suggests that local
+amenities are capitalized in housing values, and predicts that the
+prices of houses located near the incinerator would fall compared to the
+price of houses located further away from the incinerator. By 1981, you
+can assume that all market participants had full information on the
+upcoming garbage incinerator, so that housing values had capitalized the
+upcoming arrival of the incinerator.
+
+**Data:** The authors of the paper collected data on prices of houses
+that sold in 1978 (before the upcoming construction of the incinerator
+was public knowledge) and in 1981 (after the construction had started).
+The key variables for the analysis are:
+
+-   rprice (inflation-adjusted sales price of house),
+
+-   nearinc (=1 if house located near the incinerator, =0 otherwise),
+
+-   age (age of the house),
+
+-   land (square footage of the lot),
+
+-   area (square footage of the house),
+
+-   rooms (number of rooms in the house), and
+
+-   a year indicator (1978 or 1981).
+
+These variables are contained in the CSV file `KM_EDS241.csv`.
+
+```{r}
+data <- read_csv(here("KM_EDS241.csv")) %>% 
+  mutate(nearinc = as.factor(nearinc), 
+         year = as.factor(year))
+```
+
+(a) Using the data for 1981, estimate a simple OLS regression of real house values on the indicator for being located near the incinerator in 1981. What is the house value “penalty” for houses located near the incinerator? Does this estimated coefficient correspond to the ‘causal’ effect of the incinerator (and the negative amenities that come with it) on housing values? Explain why or why not.
+
+```{r}
+data_1981 <- data %>% 
+  filter(year == 1981)
+
+
+model1 <- lm_robust(rprice ~ nearinc, data = data_1981)
+summary(model1)
+
+```
+
+
+The penalty for houses being located near the incinerator is `r -1 * round(model1$coefficients[2], 3)`. This coefficient does correspond to the causal effect of the incinerator because it is demonstrating that house values will significantly decrease if a house a near an incinerator compared to a house that is not. There is a possibility that omitted variables are exaggerating this causal relationship. 
+
+
+(b) Using the data for 1978, provide some evidence the location choice of the incinerator was not “random”, but rather selected on the basis of house values and characteristics. [Hint: in the 1978 sample, are house values and characteristics balanced by `nearinc` status?]
+
+```{r}
+data_1978 <- data %>% 
+  filter(year == 1978)
+```
+
+```{r}
+avg_house_price_78 <- data_1978 %>% 
+  group_by(nearinc) %>% 
+  summarize(avg_price = round(mean(rprice), 2)) %>% 
+  rename("Near Incinerator" = "nearinc", 
+         "Average House Price" = "avg_price")
+avg_house_price_78
+
+```
+
+```{r}
+mean_diff <- avg_house_price_78$`Average House Price`[1] -
+  avg_house_price_78$`Average House Price`[2]
+
+mean_diff
+```
+
+```{r}
+model2 <- lm_robust(age ~ nearinc, data = data)
+
+model3 <- lm_robust(area ~ nearinc, data = data)
+
+model4 <- lm_robust(rooms ~ nearinc, data = data)
+
+```
+
+
+The mean difference between average house prices for those near the incinerator versus not is `r mean_diff`. This shows that it is likely that the incinerator location choice was not random. Additionally, houses that are near an incinerator are on average `r model2$coefficients[2]` years older than those that are not near the incinerator. The square footage of houses near incinerators are also on average `r -1 * model3$coefficients[2]` less than those further away. Finally, there are on average `r -1 * model4$coefficients[2]` less rooms in houses near incinerators. All of these things show that the placement of the incinerators was likely not random. 
+
+(c) Based on the observed differences in (b), explain why the estimate in (a) is likely to be biased downward (i.e., overstate the negative effect of the incinerator on housing values).
+
+Because of the fact that the houses near the incinerator are older, smaller and have less rooms, they will already have a lower value, regardless of the placement of the incinerator so this creates an overestimation of the negative impact of the incinerators on housing values. 
+
+(d) Use a difference-in-differences (DD) estimator to estimate the causal effect of the incinerator on housing values without controlling for house and lot characteristics. Interpret the magnitude and sign of the estimated DD coefficient.
+
+```{r}
+# DD_cap1 <- lm_robust(formula = rprice ~ nearinc, data=data)
+# summary(DD_cap1)
+
+DD1 <- plm(rprice ~ nearinc, 
+               index = c("year"), 
+               model = "within", 
+               effect = "twoways", data = data)
+
+summary(DD1)
+
+
+# these two should produce the same thing if we added year in the lm_robust one above. So we should discuss which one is correct cause should we be controlling for year, I assume so. 
+
+```
+
+The estimated DD coefficient is `r DD1$coefficients[[1]]`. This means that for houses that are near the incinerator, their value decreases (negative sign) by `r -1* DD1$coefficients[[1]]` (magnitude).
+
+
+(e) Report the 95% confidence interval for the estimate of the causal effect on the incinerator in (d).
+
+```{r}
+low <- confint(DD1)[1]
+high <- confint(DD1)[2]
+
+```
+
+The 95% confidence interval for the estimate of the causal effect on the incinerator is [`r low`, `r high`].
+
+
+(f) How does your answer in (d) changes when you control for house and lot characteristics? Test the hypothesis that the coefficients on the house and lot characteristics are all jointly equal to 0.
+
+```{r}
+DD2 <- plm(rprice ~ nearinc + age + rooms + area + land,
+               index = c("year"), 
+               model = "within", 
+               effect = "twoways", 
+               data = data)
+summary(DD2)
+
+```
+
+```{r}
+linHyp1 <- linearHypothesis(DD2, c("age=0", "rooms=0", "area=0", "land=0"), white.adjust = "hc2")
+linHyp1$`Pr(>Chisq)`[2]
+```
+
+With a p-value of `r linHyp1$'Pr(>Chisq)'[2]`, we can reject the null hypothesis that all coefficients on housing and lot characteristics are jointly equal to 0. 
+
+(g) Using the results from the DD regression in (f), calculate by how much did real housing values change on average between 1978 and 1981.
+
+```{r}
+
+```
+
+
+(h) Explain (in words) what is the key assumption underlying the causal interpretation of the DD estimator in the context of the incinerator construction in North Andover.
+
+
